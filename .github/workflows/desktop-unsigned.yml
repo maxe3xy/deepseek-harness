@@ -32,9 +32,6 @@ jobs:
           - os: windows-2025
             target: win-x64
             script: package:desktop:win:x64:unsigned
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +51,7 @@ jobs:
       # 这些地址只用来通过打包前检查，不会发布更新。
       - name: Write Windows packaging settings
         if: matrix.target == 'win-x64'
+        shell: bash
         run: |
           cat > apps/desktop/.env.windows << 'EOF'
           DSH_DESKTOP_APP_ID=com.deepseek.dsh
