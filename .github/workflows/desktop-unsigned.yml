@@ -1,0 +1,78 @@
+# 在 GitHub 托管机器上打未签名的桌面安装包。
+# 官方 macos-package.yml / windows-package.yml 依赖自有 runner 和签名配置，这个工作流不走那条路。
+# 产物没有 Apple 公证，也没有 Windows 签名，只能给内部试用。
+
+name: Desktop unsigned packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: mac-arm64
+            script: package:desktop:mac:arm64:unsigned
+          - os: macos-15-intel
+            target: mac-x64
+            script: package:desktop:mac:x64:unsigned
+          - os: windows-2025
+            target: win-x64
+            script: package:desktop:win:x64:unsigned
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Windows 未签名打包仍会读取 apps/desktop/.env.windows，并校验策略地址。
+      # 这些地址只用来通过打包前检查，不会发布更新。
+      - name: Write Windows packaging settings
+        if: matrix.target == 'win-x64'
+        run: |
+          cat > apps/desktop/.env.windows << 'EOF'
+          DSH_DESKTOP_APP_ID=com.deepseek.dsh
+          DSH_DESKTOP_AUTO_UPDATE_ENV=test
+          DOWNLOAD_TEST_ORIGIN=https://example.com
+          DOWNLOAD_TEST_RELEASE_ID=00000000000000000000000000000000
+          DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://example.com
+          DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://example.com
+          DSH_DESKTOP_MANDATORY_UPDATE_CONFIG={"allowedAuthOrigins":["https://example.com"]}
+          DSH_DESKTOP_WINDOWS_COMPRESSION_LEVEL=3
+          EOF
+
+      - name: Package ${{ matrix.target }}
+        run: pnpm run ${{ matrix.script }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-${{ matrix.target }}-unsigned
+          if-no-files-found: error
+          retention-days: 7
+          path: apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts
